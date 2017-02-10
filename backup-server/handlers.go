@@ -3,11 +3,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/sivaramsk/cloud-backup/backup-server/objectstore"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
 
 	"github.com/gorilla/mux"
 	//"github.com/minio/minio-go"
@@ -15,15 +13,22 @@ import (
 
 func main() {
 
+	log.Println("Starting backup server framework on port 8080...")
+	http.ListenAndServe("0.0.0.0:8080", Handlers())
+
+}
+
+func Handlers() *mux.Router {
+
 	router := mux.NewRouter().StrictSlash(true)
 	router.HandleFunc("/", ListBackups)
-	router.HandleFunc("/backup", ConfigBackup)
-	router.HandleFunc("/backup/{backupId}", ListBackupById)
-	router.HandleFunc("/backup/{backupId}", DeleteBackupById).Methods("GET")
-	//router.HandleFunc("/sshkey", ConfigSSHKey).Methods("POST")
-	//router.HandleFunc("/sshkey", ConfigSSHKey).Methods("GET")
+	router.HandleFunc("/backup", ConfigBackup).Methods("POST")
+	router.HandleFunc("/backup/{backupId}", ListBackupById).Methods("GET")
+	router.HandleFunc("/backup/{backupId}", DeleteBackupById).Methods("DELETE")
+	router.HandleFunc("/sshkey", ConfigSSHKey).Methods("POST")
+	router.HandleFunc("/sshkey", ConfigSSHKey).Methods("GET")
 
-	log.Println(http.ListenAndServe(":8080", router))
+	return router
 }
 
 func ListBackups(w http.ResponseWriter, r *http.Request) {
@@ -31,7 +36,7 @@ func ListBackups(w http.ResponseWriter, r *http.Request) {
 
 	doneCh := make(chan struct{})
 
-	obs, err := getBackendStoreObject()
+	obs, err := GetBackendStoreObject()
 	if err != nil {
 		log.Fatalln("Error getting objectstore instance")
 	}
@@ -41,13 +46,25 @@ func ListBackups(w http.ResponseWriter, r *http.Request) {
 
 	isRecursive := true
 	objectCh := obs.MinioObject.ListObjectsV2("cloudbackup", "", isRecursive, doneCh)
+	jsonList := make([]string, 0)
 	for object := range objectCh {
 		if object.Err != nil {
 			fmt.Println(object.Err)
 			return
 		}
-		fmt.Println(object)
+		jsonList = append(jsonList, object.Key)
 	}
+
+	b, err := json.Marshal(jsonList)
+	if err != nil {
+		log.Fatalln("Error marshaling data", err)
+	}
+
+	// Send the HTTP response back to the client
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+
+	fmt.Fprintln(w, "ListBackups:", string(b))
 
 }
 
@@ -60,33 +77,34 @@ func ConfigBackup(w http.ResponseWriter, r *http.Request) {
 	log.Println(w, "ConfigBackup!")
 
 	// Get the backend object
-	obs, err := getBackendStoreObject()
+	obs, err := GetBackendStoreObject()
 	if err != nil {
 		log.Fatalln("Error getting objectStore instance")
 	}
 
 	if obs.IsBucketExists("cloudbackup") != true {
-		log.Fatalln("The bucket" + "cloudbackup" + "does not exists")
+		log.Fatalln("The bucket" + " cloudbackup" + " does not exists")
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-
-	var m BackupJob
 	b, err := ioutil.ReadAll(r.Body)
+	log.Println(b)
 	if err != nil {
 		log.Fatalln("Error reading json.")
 	}
 
+	var m BackupJob
 	err = json.Unmarshal(b, &m)
 	if err != nil {
-		log.Fatalln("Error unmarshaling data")
+		log.Fatalln("Error marshaling data", err)
 	}
+
+	log.Println("JsonData: ", m)
 
 	// Get the objectName
 	objectName := "config/" + m.BackupName + "/schedule"
 
 	// Set the config data against the key objectName
-	err = obs.PutObject("backupserver", objectName, b)
+	err = obs.PutObject("cloudbackup", objectName, b)
 	if err != nil {
 		log.Fatalln("Error Uploading data to the backend store")
 	}
@@ -96,12 +114,51 @@ func ConfigBackup(w http.ResponseWriter, r *http.Request) {
 func ListBackupById(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	backupId := vars["backupId"]
+
+	obs, err := GetBackendStoreObject()
+	if err != nil {
+		log.Fatalln("Error getting objectstore instance")
+	}
+
+	backupId = "config/" + backupId + "/schedule"
+	object, err := obs.GetObject("cloudbackup", backupId)
+	if err != nil {
+		log.Println("Error Reading object", err)
+	}
+
+	var testJson BackupJob
+	err = json.Unmarshal(object, &testJson)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	log.Printf("%+v", testJson)
+
+	// Send the HTTP response back to the client
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+
+	w.Write(object)
+
 	fmt.Fprintln(w, "ListBackupById:", backupId)
 }
 
 func DeleteBackupById(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	backupId := vars["backupId"]
+
+	obs, err := GetBackendStoreObject()
+	if err != nil {
+		log.Fatalln("Error getting objectstore instance")
+	}
+
+	backupId = "config/" + backupId + "/schedule"
+	err = obs.MinioObject.RemoveObject("cloudbackup", backupId)
+	if err != nil {
+		log.Println("Error Reading object", err)
+	}
+
+	w.WriteHeader(http.StatusOK)
+
 	fmt.Fprintln(w, "DeleteBackupById!", backupId)
 }
 
@@ -115,19 +172,4 @@ func GetSSHKey(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	backupId := vars["backupId"]
 	fmt.Fprintln(w, "DeleteBackupById!", backupId)
-}
-
-func getBackendStoreObject() (objectstore.ObjectStore, error) {
-	endpoint := os.Getenv("OBJECSTORE_ENDPOINT")
-	accessKeyId := os.Getenv("ACCESS_KEY_ID")
-	secretAccessKey := os.Getenv("SECRET_ACCESS_KEY")
-	useSSL := false
-
-	var obs objectstore.ObjectStore
-	err := obs.Initialize(endpoint, accessKeyId, secretAccessKey, useSSL)
-	if err != nil {
-		log.Fatalln("Error initializing ObjectStore")
-	}
-
-	return obs, nil
 }

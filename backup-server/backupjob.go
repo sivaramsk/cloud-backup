@@ -15,11 +15,15 @@ Json Structure:
 */
 
 type BackupJob struct {
-	BackupName string `json:"name"`
-	TargetNode string `json:"target"`
-	BackupSrc  string `json:"backupsrc"`
-	Schedule   string `json:"schedule"`
-	Password   string `json:"password"`
+	BackupName string `json:"BackupName"`
+	TargetNode string `json:"TargetNode"`
+	BackupSrc  string `json:"BackupSrc"`
+	Schedule   string `json:"Schedule"`
+	Password   string `json:"Password"`
 }
 
 type Backups []BackupJob
+
+type JobList struct {
+	BackupList []string
+}
