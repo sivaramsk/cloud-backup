@@ -27,6 +27,7 @@ func Handlers() *mux.Router {
 	router.HandleFunc("/backup/{backupId}", DeleteBackupById).Methods("DELETE")
 	router.HandleFunc("/sshkey", ConfigSSHKey).Methods("POST")
 	router.HandleFunc("/sshkey", ConfigSSHKey).Methods("GET")
+	router.HandleFunc("/help", Help)
 
 	return router
 }
@@ -172,4 +173,16 @@ func GetSSHKey(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	backupId := vars["backupId"]
 	fmt.Fprintln(w, "DeleteBackupById!", backupId)
+}
+
+func Help(w http.ResponseWriter, r *http.Request) {
+
+	w.WriteHeader(http.StatusOK)
+
+	fmt.Fprintln(w, "/help - This help listing")
+	fmt.Fprintln(w, "/backup - POST - Configure backups")
+	fmt.Fprintln(w, "/backup/{backupId} - GET - List backups")
+	fmt.Fprintln(w, "/backup/{backupId} - DELETE - Delete backups")
+	fmt.Fprintln(w, "/sshkey - POST - Post the SSH key")
+	fmt.Fprintln(w, "/sshkey - GET - Get the SSH key")
 }
