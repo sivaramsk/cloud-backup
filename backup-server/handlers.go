@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
+	"os"
 
 	"github.com/gorilla/mux"
 	//"github.com/minio/minio-go"
@@ -13,7 +13,9 @@ import (
 
 func main() {
 
-	log.Println("Starting backup server framework on port 8080...")
+	Init(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
+
+	Info.Println("Starting backup server framework on port 8080...")
 	http.ListenAndServe("0.0.0.0:8080", Handlers())
 
 }
@@ -33,13 +35,13 @@ func Handlers() *mux.Router {
 }
 
 func ListBackups(w http.ResponseWriter, r *http.Request) {
-	log.Println(w, "ListBackup!")
+	Info.Println(w, "ListBackup!")
 
 	doneCh := make(chan struct{})
 
 	obs, err := GetBackendStoreObject()
 	if err != nil {
-		log.Fatalln("Error getting objectstore instance")
+		Error.Println("Error getting objectstore instance")
 	}
 
 	// Indicate to our routine to exit cleanly upon return.
@@ -58,7 +60,7 @@ func ListBackups(w http.ResponseWriter, r *http.Request) {
 
 	b, err := json.Marshal(jsonList)
 	if err != nil {
-		log.Fatalln("Error marshaling data", err)
+		Error.Println("Error marshaling data", err)
 	}
 
 	// Send the HTTP response back to the client
@@ -75,31 +77,31 @@ func ListBackups(w http.ResponseWriter, r *http.Request) {
 */
 
 func ConfigBackup(w http.ResponseWriter, r *http.Request) {
-	log.Println(w, "ConfigBackup!")
+	Info.Println(w, "ConfigBackup!")
 
 	// Get the backend object
 	obs, err := GetBackendStoreObject()
 	if err != nil {
-		log.Fatalln("Error getting objectStore instance")
+		Error.Println("Error getting objectStore instance")
 	}
 
 	if obs.IsBucketExists("cloudbackup") != true {
-		log.Fatalln("The bucket" + " cloudbackup" + " does not exists")
+		Error.Println("The bucket" + " cloudbackup" + " does not exists")
 	}
 
 	b, err := ioutil.ReadAll(r.Body)
-	log.Println(b)
+	Info.Println(b)
 	if err != nil {
-		log.Fatalln("Error reading json.")
+		Error.Println("Error reading json.")
 	}
 
 	var m BackupJob
 	err = json.Unmarshal(b, &m)
 	if err != nil {
-		log.Fatalln("Error marshaling data", err)
+		Error.Println("Error marshaling data", err)
 	}
 
-	log.Println("JsonData: ", m)
+	Info.Println("JsonData: ", m)
 
 	// Get the objectName
 	objectName := "config/" + m.BackupName + "/schedule"
@@ -107,7 +109,7 @@ func ConfigBackup(w http.ResponseWriter, r *http.Request) {
 	// Set the config data against the key objectName
 	err = obs.PutObject("cloudbackup", objectName, b)
 	if err != nil {
-		log.Fatalln("Error Uploading data to the backend store")
+		Error.Println("Error Uploading data to the backend store")
 	}
 
 }
@@ -118,21 +120,21 @@ func ListBackupById(w http.ResponseWriter, r *http.Request) {
 
 	obs, err := GetBackendStoreObject()
 	if err != nil {
-		log.Fatalln("Error getting objectstore instance")
+		Error.Println("Error getting objectstore instance")
 	}
 
 	backupId = "config/" + backupId + "/schedule"
 	object, err := obs.GetObject("cloudbackup", backupId)
 	if err != nil {
-		log.Println("Error Reading object", err)
+		Error.Println("Error Reading object", err)
 	}
 
 	var testJson BackupJob
 	err = json.Unmarshal(object, &testJson)
 	if err != nil {
-		log.Fatalln(err)
+		Error.Println(err)
 	}
-	log.Printf("%+v", testJson)
+	Info.Printf("%+v", testJson)
 
 	// Send the HTTP response back to the client
 	w.WriteHeader(http.StatusOK)
@@ -149,13 +151,13 @@ func DeleteBackupById(w http.ResponseWriter, r *http.Request) {
 
 	obs, err := GetBackendStoreObject()
 	if err != nil {
-		log.Fatalln("Error getting objectstore instance")
+		Error.Println("Error getting objectstore instance")
 	}
 
 	backupId = "config/" + backupId + "/schedule"
 	err = obs.MinioObject.RemoveObject("cloudbackup", backupId)
 	if err != nil {
-		log.Println("Error Reading object", err)
+		Error.Println("Error Reading object", err)
 	}
 
 	w.WriteHeader(http.StatusOK)
